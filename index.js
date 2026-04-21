@@ -12,11 +12,10 @@ process.on('unhandledRejection', (reason, p) => {
 });
 
 const fs = require('fs-extra');
-const path = require('path');
 const http = require('http');
 const pino = require('pino');
 const mongoose = require('mongoose');
-const express = require("express");
+const express = require('express');
 const bodyparser = require('body-parser');
 const { MongoClient } = require('mongodb');
 const { default: makeWASocket, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
@@ -25,7 +24,7 @@ const P = require('pino');
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
 const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
 const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
-const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER !== 'false';
+const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'false';
 const NEWSLETTER_JID = process.env.NEWSLETTER_JID || '120363421104812135@newsletter';
 
 if (!MONGO_URL) {
@@ -65,7 +64,7 @@ async function useMongoDBAuthState(collectionName) {
   const coll = db.collection(collectionName);
 
   const writeData = async (data, id) => {
-    await coll.updateOne({ _id: id }, { $set: { ...data } }, { upsert: true });
+    await coll.updateOne({ _id: id }, { $set: {...data } }, { upsert: true });
   };
 
   const readData = async (id) => {
@@ -99,7 +98,7 @@ async function useMongoDBAuthState(collectionName) {
         async get(type, ids) {
           const data = {};
           for (const id of ids) {
-            const val = await readData(`${type}-${id}`);
+            const val = await readData(type + '-' + id);
             if (val) data[id] = val.value;
           }
           return data;
@@ -109,7 +108,7 @@ async function useMongoDBAuthState(collectionName) {
           for (const category in data) {
             for (const id in data[category]) {
               const value = data[category][id];
-              const _id = `${category}-${id}`;
+              const _id = category + '-' + id;
               if (value) ops.push(writeData({ value }, _id));
               else ops.push(removeData(_id));
             }
@@ -131,57 +130,4 @@ async function useMongoDBAuthState(collectionName) {
 async function getUserConfigFromMongoDB(number) {
   try {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
-    const session = await Session.findOne({ number: sanitizedNumber });
-    return session ? session.config : { ...defaultConfig };
-  } catch (error) {
-    console.error('❌ Failed to get user config from MongoDB:', error);
-    return { ...defaultConfig };
-  }
-}
-
-async function initConnection(number) {
-  if (!MONGO_URL) throw new Error('MONGO_URL or MONGODB_URL env var not set');
-
-  const { state, saveCreds, client } = await useMongoDBAuthState(`auth_${number}`);
-  const { version } = await fetchLatestBaileysVersion();
-
-  const conn = makeWASocket({
-    version,
-    logger: P({ level: 'silent' }),
-    printQRInTerminal: false,
-    auth: state,
-    browser: Browsers.macOS('Safari'),
-    connectTimeoutMs: 30000,
-    keepAliveIntervalMs: 10000,
-    defaultQueryTimeoutMs: 30000,
-    retryRequestDelayMs: 250,
-    maxRetries: 5,
-    markOnlineOnConnect: true,
-    syncFullHistory: false
-  });
-
-  activeSockets.set(number, { conn, saveCreds, connected: false, mongoClient: client });
-  setupHandlers(conn, number, saveCreds);
-  return conn;
-}
-
-function setupHandlers(conn, number, saveCreds) {
-  const entry = activeSockets.get(number);
-
-  conn.ev.on('creds.update', async () => {
-    try {
-      await saveCreds();
-    } catch (e) {
-      console.error('creds.update error:', e);
-    }
-  });
-
-  conn.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
-    console.log(`[${number}] ${connection}`);
-
-    if (connection === 'open') {
-      entry.connected = true;
-      console.log(`✅ [${number}] CONNECTED`);
-
-      if (AUTO_FOLLOW_NEWSLETTER &&
+    const session = await Session.findOne({ number
