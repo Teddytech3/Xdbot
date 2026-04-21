@@ -5,6 +5,7 @@
  * Owner: Teddy (+254799963583)
  */
 
+console.log('=== BOOTING TEDDY-XMD ===');
 require('dotenv').config();
 
 // Catch crashes so Heroku logs show the real error
@@ -24,6 +25,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 const fs = require('fs-extra');
 const path = require('path');
+const http = require('http');
 const { exec } = require('child_process');
 const pino = require('pino');
 const axios = require('axios');
@@ -81,10 +83,10 @@ const express = require("express");
 
 //================= ENV / CONFIG =================================//
 
-const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || 'mongodb+srv://sana:jawadsaan@cluster0.39ezrfs.mongodb.net/?appName=Cluster0';
+const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
 const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
 const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
-const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'true';
+const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER !== 'false';
 
 const defaultConfig = {
   AUTO_VIEW_STATUS: 'true',
@@ -329,4 +331,12 @@ app.get('/pair/:phone', async (req, res) => {
   }
 });
 
-server.listen
+server.listen(PORT, () => {
+  console.log(`🚀 TEDDY-XMD listening on port ${PORT}`);
+  if (!MONGO_URL) console.warn('⚠️ MONGO_URL/MONGODB_URL not set. Will crash on /pair');
+});
+
+// Auto-start if number provided
+if (process.env.AUTO_START_NUMBER) {
+  initConnection(process.env.AUTO_START_NUMBER).catch(e => console.error('Auto start failed:', e));
+}
