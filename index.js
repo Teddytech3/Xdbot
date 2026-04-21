@@ -64,7 +64,7 @@ const {
   Browsers,
   makeCacheableSignalKeyStore
 } = require('@whiskeysockets/baileys');
-const { useMongoDBAuthState } = require('@whiskeysockets/baileys-mongo');
+const { useMongoDBAuthState } = require('use-mongodb-auth-state'); // <-- FIXED IMPORT
 const { MongoClient } = require('mongodb');
 
 const l = console.log;
@@ -86,7 +86,7 @@ const express = require("express");
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
 const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
 const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
-const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER !== 'false';
+const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'false';
 
 const defaultConfig = {
   AUTO_VIEW_STATUS: 'true',
@@ -188,10 +188,7 @@ async function getUserConfigFromMongoDB(number) {
 async function initConnection(number) {
   if (!MONGO_URL) throw new Error('MONGO_URL or MONGODB_URL env var not set');
 
-  const mongoClient = new MongoClient(MONGO_URL);
-  await mongoClient.connect();
-  const collection = mongoClient.db().collection('auth_' + number);
-  const { state, saveCreds } = await useMongoDBAuthState(collection);
+  const { state, saveCreds } = await useMongoDBAuthState(MONGO_URL, `auth_${number}`);
   const { version } = await fetchLatestBaileysVersion();
 
   const conn = makeWASocket({
@@ -209,7 +206,7 @@ async function initConnection(number) {
     syncFullHistory: false,
   });
 
-  activeSockets.set(number, { conn, saveCreds, connected: false, mongoClient });
+  activeSockets.set(number, { conn, saveCreds, connected: false });
   setupHandlers(conn, number, saveCreds);
   return conn;
 }
@@ -263,9 +260,6 @@ function setupHandlers(conn, number, saveCreds) {
       console.log(`❌ [${number}] closed code=${code}`);
 
       if (code === DisconnectReason.loggedOut || code === 401 || code === 405) {
-        try {
-          await entry.mongoClient.db().collection('auth_' + number).deleteMany({});
-        } catch {}
         activeSockets.delete(number);
         return;
       }
