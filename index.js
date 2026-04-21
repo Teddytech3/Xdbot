@@ -135,4 +135,51 @@ mongoose.connect(MONGO_URL, {
 // MongoDB Schemas
 const sessionSchema = new mongoose.Schema({
   number: { type: String, required: true, unique: true },
-  creds: { type: Object, required:
+  creds: { type: Object, required: true },
+  config: { type: Object, default: defaultConfig },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const numberSchema = new mongoose.Schema({
+  number: { type: String, required: true, unique: true },
+  active: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const otpSchema = new mongoose.Schema({
+  number: { type: String, required: true },
+  otp: { type: String, required: true },
+  newConfig: { type: Object },
+  expiry: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Session = mongoose.model('Session', sessionSchema);
+const BotNumber = mongoose.model('BotNumber', numberSchema);
+const OTP = mongoose.model('OTP', otpSchema);
+
+const activeSockets = new Map();
+const socketCreationTime = new Map();
+const SESSION_BASE_PATH = './sessions_multi';
+
+if (!fs.existsSync(SESSION_BASE_PATH)) {
+  fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
+}
+
+//================= CUSTOM MONGODB AUTH STATE ===============================//
+
+async function useMongoDBAuthState(collectionName) {
+  const client = new MongoClient(MONGO_URL);
+  await client.connect();
+  const db = client.db();
+  const coll = db.collection(collectionName);
+
+  const writeData = async (data, id) => {
+    await coll.updateOne({ _id: id }, { $set: { ...data } }, { upsert: true });
+  };
+
+  const readData = async (id) => {
+    const doc = await coll.findOne({ _id: id });
+    return doc || null;
+ 
