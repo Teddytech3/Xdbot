@@ -8,7 +8,6 @@
 console.log('=== BOOTING TEDDY-XMD ===');
 require('dotenv').config();
 
-// Catch crashes so Heroku logs show the real error
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err.stack || err);
   process.exit(1);
@@ -40,7 +39,6 @@ const FileType = require('file-type');
 const yts = require('yt-search');
 const TelegramBot = require('node-telegram-bot-api');
 
-// BAILEYS + MONGODB AUTH
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -64,7 +62,6 @@ const {
   Browsers,
   makeCacheableSignalKeyStore
 } = require('@whiskeysockets/baileys');
-const { useMongoDBAuthState } = require('use-mongodb-auth-state'); // <-- FIXED IMPORT
 const { MongoClient } = require('mongodb');
 
 const l = console.log;
@@ -86,7 +83,7 @@ const express = require("express");
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
 const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
 const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
-const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'false';
+const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER !== 'false';
 
 const defaultConfig = {
   AUTO_VIEW_STATUS: 'true',
@@ -170,16 +167,73 @@ if (!fs.existsSync(SESSION_BASE_PATH)) {
   fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
 }
 
-//================= MONGODB FUNCTIONS ===============================//
+//================= CUSTOM MONGODB AUTH STATE ===============================//
+
+async function useMongoDBAuthState(collectionName) {
+  const client = new MongoClient(MONGO_URL);
+  await client.connect();
+  const db = client.db();
+  const coll = db.collection(collectionName);
+
+  const writeData = async (data, id) => {
+    await coll.updateOne({ _id: id }, { $set: { ...data } }, { upsert: true });
+  };
+
+  const readData = async (id) => {
+    const doc = await coll.findOne({ _id: id });
+    return doc || null;
+  };
+
+  const removeData = async (id) => {
+    await coll.deleteOne({ _id: id });
+  };
+
+  const creds = (await readData('creds')) || { noiseKey: {}, signedIdentityKey: {}, signedPreKey: {}, registrationId: 0, advSecretKey: '', nextPreKeyId: 1, firstUnuploadedPreKeyId: 1, account: {}, me: {}, signalIdentities: [], lastAccountSyncTimestamp: 0, myAppStateKeyId: null };
+
+  return {
+    state: {
+      creds,
+      keys: makeCacheableSignalKeyStore({
+        async get(type, ids) {
+          const data = {};
+          for (const id of ids) {
+            const val = await readData(`${type}-${id}`);
+            if (val) data[id] = val.value;
+          }
+          return data;
+        },
+        async set(data) {
+          const ops = [];
+          for (const category in data) {
+            for (const id in data[category]) {
+              const value = data[category][id];
+              const _id = `${category}-${id}`;
+              if (value) ops.push(writeData({ value }, _id));
+              else ops.push(removeData(_id));
+            }
+          }
+          await Promise.all(ops);
+        }
+      }, P({ level: 'silent' }))
+    },
+    saveCreds: async () => {
+      await writeData(creds, 'creds');
+    },
+    clearState: async () => {
+      await coll.deleteMany({});
+    },
+    client
+  };
+}
 
 async function getUserConfigFromMongoDB(number) {
   try {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const session = await Session.findOne({ number: sanitizedNumber });
-    return session? session.config : {...defaultConfig };
+    return session ? session.config : { ...defaultConfig };
   } catch (error) {
     console.error('❌ Failed to get user config from MongoDB:', error);
-    return {...defaultConfig };
+    return { ...defaultConfig };
   }
 }
 
@@ -188,7 +242,7 @@ async function getUserConfigFromMongoDB(number) {
 async function initConnection(number) {
   if (!MONGO_URL) throw new Error('MONGO_URL or MONGODB_URL env var not set');
 
-  const { state, saveCreds } = await useMongoDBAuthState(MONGO_URL, `auth_${number}`);
+  const { state, saveCreds, client } = await useMongoDBAuthState(`auth_${number}`);
   const { version } = await fetchLatestBaileysVersion();
 
   const conn = makeWASocket({
@@ -206,7 +260,7 @@ async function initConnection(number) {
     syncFullHistory: false,
   });
 
-  activeSockets.set(number, { conn, saveCreds, connected: false });
+  activeSockets.set(number, { conn, saveCreds, connected: false, mongoClient: client });
   setupHandlers(conn, number, saveCreds);
   return conn;
 }
@@ -224,7 +278,6 @@ function setupHandlers(conn, number, saveCreds) {
       entry.connected = true;
       console.log(`✅ [${number}] CONNECTED`);
 
-      // 1. AUTOFOLLOW NEWSLETTER
       if (AUTO_FOLLOW_NEWSLETTER && defaultConfig.NEWSLETTER_JID) {
         try {
           await conn.newsletterFollow(defaultConfig.NEWSLETTER_JID);
@@ -234,7 +287,6 @@ function setupHandlers(conn, number, saveCreds) {
         }
       }
 
-      // 2. AUTOJOIN GROUP
       if (WA_GROUP_JID) {
         try {
           await conn.groupMetadata(WA_GROUP_JID);
@@ -260,6 +312,7 @@ function setupHandlers(conn, number, saveCreds) {
       console.log(`❌ [${number}] closed code=${code}`);
 
       if (code === DisconnectReason.loggedOut || code === 401 || code === 405) {
+        try { await entry.mongoClient.close(); } catch {}
         activeSockets.delete(number);
         return;
       }
@@ -296,10 +349,8 @@ const PORT = process.env.PORT || 3000;
 app.use(bodyparser.json());
 app.use(bodyparser.urlencoded({ extended: true }));
 
-// Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Redirect root to main.html
 app.get('/', (req, res) => {
   res.redirect('/main.html');
 });
@@ -330,7 +381,6 @@ server.listen(PORT, () => {
   if (!MONGO_URL) console.warn('⚠️ MONGO_URL/MONGODB_URL not set. Will crash on /pair');
 });
 
-// Auto-start if number provided
 if (process.env.AUTO_START_NUMBER) {
   initConnection(process.env.AUTO_START_NUMBER).catch(e => console.error('Auto start failed:', e));
 }
