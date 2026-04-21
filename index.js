@@ -1,3 +1,4 @@
+cat > index.js << 'EOF'
 'use strict';
 console.log('=== BOOTING TEDDY-XMD ===');
 require('dotenv').config();
@@ -22,14 +23,8 @@ const { default: makeWASocket, DisconnectReason, Browsers, fetchLatestBaileysVer
 const P = require('pino');
 
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
-const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
 const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
-const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'false';
 const NEWSLETTER_JID = process.env.NEWSLETTER_JID || '120363421104812135@newsletter';
-
-if (!MONGO_URL) {
-  console.error('❌ MONGO_URL or MONGODB_URL env var not set.');
-}
 
 mongoose.connect(MONGO_URL).then(() => {
   console.log('✅ Connected to MongoDB via Mongoose');
@@ -37,25 +32,7 @@ mongoose.connect(MONGO_URL).then(() => {
   console.error('❌ MongoDB connection error:', err);
 });
 
-const defaultConfig = {
-  PREFIX: '.',
-  MODE: 'public'
-};
-
-const sessionSchema = new mongoose.Schema({
-  number: { type: String, required: true, unique: true },
-  creds: { type: Object, required: true },
-  config: { type: Object, default: defaultConfig },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-const Session = mongoose.model('Session', sessionSchema);
-
 const activeSockets = new Map();
-const SESSION_BASE_PATH = './sessions_multi';
-if (!fs.existsSync(SESSION_BASE_PATH)) {
-  fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
-}
 
 async function useMongoDBAuthState(collectionName) {
   const client = new MongoClient(MONGO_URL);
@@ -98,3 +75,134 @@ async function useMongoDBAuthState(collectionName) {
         async get(type, ids) {
           const data = {};
           for (const id of ids) {
+            const val = await readData(type + '-' + id);
+            if (val) data[id] = val.value;
+          }
+          return data;
+        },
+        async set(data) {
+          const ops = [];
+          for (const category in data) {
+            for (const id in data[category]) {
+              const value = data[category][id];
+              const _id = category + '-' + id;
+              if (value) ops.push(writeData({ value }, _id));
+              else ops.push(removeData(_id));
+            }
+          }
+          await Promise.all(ops);
+        }
+      }, P({ level: 'silent' }))
+    },
+    saveCreds: async () => {
+      await writeData(creds, 'creds');
+    },
+    clearState: async () => {
+      await coll.deleteMany({});
+    },
+    client
+  };
+}
+
+async function initConnection(number) {
+  if (!MONGO_URL) throw new Error('MONGO_URL or MONGODB_URL env var not set');
+
+  const { state, saveCreds, client } = await useMongoDBAuthState('auth_' + number);
+  const { version } = await fetchLatestBaileysVersion();
+
+  const conn = makeWASocket({
+    version,
+    logger: P({ level: 'silent' }),
+    printQRInTerminal: false,
+    auth: state,
+    browser: Browsers.macOS('Safari'),
+    connectTimeoutMs: 30000,
+    keepAliveIntervalMs: 10000,
+    defaultQueryTimeoutMs: 30000,
+    retryRequestDelayMs: 250,
+    maxRetries: 5,
+    markOnlineOnConnect: true,
+    syncFullHistory: false
+  });
+
+  activeSockets.set(number, { conn, saveCreds, connected: false, mongoClient: client });
+
+  conn.ev.on('creds.update', async () => {
+    try {
+      await saveCreds();
+    } catch (e) {
+      console.error('creds.update error:', e);
+    }
+  });
+
+  conn.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update;
+    console.log('[' + number + '] ' + connection);
+
+    if (connection === 'open') {
+      activeSockets.get(number).connected = true;
+      console.log('✅ [' + number + '] CONNECTED');
+    }
+
+    if (connection === 'close') {
+      activeSockets.get(number).connected = false;
+      const code = lastDisconnect?.error?.output?.statusCode;
+      console.log('❌ [' + number + '] closed code=' + code);
+
+      if (code === DisconnectReason.loggedOut || code === 401 || code === 405) {
+        try {
+          await activeSockets.get(number).mongoClient.close();
+        } catch {}
+        activeSockets.delete(number);
+        return;
+      }
+
+      setTimeout(async () => {
+        try {
+          conn.ev.removeAllListeners();
+          try { conn.ws?.terminate(); } catch {}
+          await initConnection(number);
+        } catch (e) {
+          console.error('Reconnect ' + number + ': ' + e.message);
+        }
+      }, 5000);
+    }
+  });
+}
+
+const app = express();
+const server = http.createServer(app);
+const PORT = process.env.PORT || 3000;
+
+app.use(bodyparser.json());
+app.use(bodyparser.urlencoded({ extended: true }));
+
+app.get('/', (req, res) => {
+  res.json({ status: 'TEDDY-XMD API running', version: '5.7.0' });
+});
+
+app.get('/pair/:phone', async (req, res) => {
+  try {
+    const phone = req.params.phone.replace(/[^0-9]/g, '');
+    if (!phone) return res.status(400).send('Invalid phone number');
+
+    let entry = activeSockets.get(phone);
+    if (!entry) {
+      await initConnection(phone);
+      entry = activeSockets.get(phone);
+    }
+
+    if (entry.connected) return res.send('Already connected');
+
+    const code = await entry.conn.requestPairingCode(phone);
+    res.send('Pairing code for ' + phone + ': ' + code);
+  } catch (e) {
+    console.error('/pair error:', e);
+    res.status(500).send('Error: ' + e.toString());
+  }
+});
+
+server.listen(PORT, () => {
+  console.log('🚀 TEDDY-XMD listening on port ' + PORT);
+});
+EOF
