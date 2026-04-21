@@ -12,6 +12,7 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err.stack || err);
   process.exit(1);
 });
+
 process.on('unhandledRejection', (reason, p) => {
   console.error('Unhandled Rejection at:', p, 'reason:', reason);
   process.exit(1);
@@ -78,8 +79,6 @@ const bodyparser = require('body-parser');
 const Crypto = require('crypto');
 const express = require("express");
 
-//================= ENV / CONFIG =================================//
-
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
 const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
 const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
@@ -119,10 +118,10 @@ const defaultConfig = {
 
 const telegramBot = new TelegramBot(defaultConfig.TELEGRAM_BOT_TOKEN, { polling: false });
 
-// MongoDB connection for mongoose models
 if (!MONGO_URL) {
   console.error('❌ MONGO_URL or MONGODB_URL env var not set. Bot will crash on connect.');
 }
+
 mongoose.connect(MONGO_URL, {
   useNewUrlParser: true,
   useUnifiedTopology: true
@@ -132,7 +131,6 @@ mongoose.connect(MONGO_URL, {
   console.error('❌ MongoDB connection error:', err);
 });
 
-// MongoDB Schemas
 const sessionSchema = new mongoose.Schema({
   number: { type: String, required: true, unique: true },
   creds: { type: Object, required: true },
@@ -149,37 +147,4 @@ const numberSchema = new mongoose.Schema({
 
 const otpSchema = new mongoose.Schema({
   number: { type: String, required: true },
-  otp: { type: String, required: true },
-  newConfig: { type: Object },
-  expiry: { type: Date, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const Session = mongoose.model('Session', sessionSchema);
-const BotNumber = mongoose.model('BotNumber', numberSchema);
-const OTP = mongoose.model('OTP', otpSchema);
-
-const activeSockets = new Map();
-const socketCreationTime = new Map();
-const SESSION_BASE_PATH = './sessions_multi';
-
-if (!fs.existsSync(SESSION_BASE_PATH)) {
-  fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
-}
-
-//================= CUSTOM MONGODB AUTH STATE ===============================//
-
-async function useMongoDBAuthState(collectionName) {
-  const client = new MongoClient(MONGO_URL);
-  await client.connect();
-  const db = client.db();
-  const coll = db.collection(collectionName);
-
-  const writeData = async (data, id) => {
-    await coll.updateOne({ _id: id }, { $set: { ...data } }, { upsert: true });
-  };
-
-  const readData = async (id) => {
-    const doc = await coll.findOne({ _id: id });
-    return doc || null;
- 
+  otp
