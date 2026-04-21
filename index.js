@@ -98,36 +98,3 @@ async function useMongoDBAuthState(collectionName) {
         async get(type, ids) {
           const data = {};
           for (const id of ids) {
-            const val = await readData(type + '-' + id);
-            if (val) data[id] = val.value;
-          }
-          return data;
-        },
-        async set(data) {
-          const ops = [];
-          for (const category in data) {
-            for (const id in data[category]) {
-              const value = data[category][id];
-              const _id = category + '-' + id;
-              if (value) ops.push(writeData({ value }, _id));
-              else ops.push(removeData(_id));
-            }
-          }
-          await Promise.all(ops);
-        }
-      }, P({ level: 'silent' }))
-    },
-    saveCreds: async () => {
-      await writeData(creds, 'creds');
-    },
-    clearState: async () => {
-      await coll.deleteMany({});
-    },
-    client
-  };
-}
-
-async function getUserConfigFromMongoDB(number) {
-  try {
-    const sanitizedNumber = number.replace(/[^0-9]/g, '');
-    const session = await Session.findOne({ number
