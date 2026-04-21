@@ -81,10 +81,10 @@ const express = require("express");
 
 //================= ENV / CONFIG =================================//
 
-const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || '';
+const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URL || 'mongodb+srv://sana:jawadsaan@cluster0.39ezrfs.mongodb.net/?appName=Cluster0';
 const WA_GROUP_JID = process.env.WA_GROUP_JID || '';
-const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || '';
-const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'false';
+const GROUP_INVITE_CODE = process.env.GROUP_INVITE_CODE || 'CLClgqJIC59GrcI4sRzLu8';
+const AUTO_FOLLOW_NEWSLETTER = process.env.AUTO_FOLLOW_NEWSLETTER!== 'true';
 
 const defaultConfig = {
   AUTO_VIEW_STATUS: 'true',
