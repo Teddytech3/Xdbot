@@ -1,47 +1,18 @@
 const express = require('express');
 const app = express();
-__path = process.cwd()
-const bodyParser = require("body-parser");
-const PORT = process.env.PORT || 10000; 
-const pairRoutes = require('./pair');
+const port = process.env.PORT || 8000;
+const bodyParser = require('body-parser');
+const cors = require('cors');
 
-require('events').EventEmitter.defaultMaxListeners = 500;
-
-// Middleware
+app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Routes
-app.use('/code', pairRoutes); 
-app.get('/pair', async (req, res, next) => {
-    res.sendFile(__path + '/pair.html')
-});
-app.get('/', async (req, res, next) => {
-    res.sendFile(__path + '/main.html')
-});
+const pairRouter = require('./inconnu');
+app.use('/', pairRouter);
 
-
-app.on('listening', () => {
-  console.log(`
-TEDDY TECH IS THE BEST 👋 
-Server running on http://0.0.0.0:${PORT}
-`);
-  
-  
-  setTimeout(async () => {
-    try {
-      const { autoReconnectFromMongoDB } = require('./pair');
-      await autoReconnectFromMongoDB();
-      console.log('✅ Auto-reconnect completed');
-    } catch (error) {
-      console.error('❌ Auto-reconnect failed:', error.message);
-    }
-  }, 5000);
-});
-
-// Démarrer le serveur
-app.listen(PORT, '0.0.0.0', () => {
-  console.log('🚀 Server started...');
+app.listen(port, () => {
+    console.log(`🚀 Server running on port ${port}`);
 });
 
 module.exports = app;
